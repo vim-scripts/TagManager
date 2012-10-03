@@ -1,0 +1,215 @@
+#!/usr/bin/env perl
+
+# this is a standalone application using an internal python script from
+# vim plugin TagHighlight by Al Budden
+
+use Cwd;
+use Getopt::Std;
+
+$VERSION = "1.6";
+( $PROGNAME = $0 ) =~ s/.*\///;
+
+my $SILENTPTN = qr/^silent!*\s+/o;
+my $EMPTYEXPRPTN = qr/^syn(?:tax)? keyword \w+\s*$/o;
+
+my %LANG_KEYWORDS = (
+  cpp => [ 'bool', 'break', 'catch', 'class', 'const', 'delete', 'explicit',
+           'export', 'extern', 'false', 'friend', 'inline', 'mutable',
+           'namespace', 'new', 'operator', 'private', 'protected', 'public',
+           'reinterpret_cast', 'static_cast', 'template', 'this', 'throw',
+           'true', 'try', 'typeid', 'typename', 'using', 'virtual' ]
+   );
+
+sub VERSION_MESSAGE
+{
+  PrintUsage();
+  exit 0;
+}
+
+sub PrintUsage
+{
+  print "$PROGNAME, version $VERSION\n";
+  print "Usage: $PROGNAME [-r] [-l] [-e <patterns>] [-a <projects>]\n";
+  print "         [-c ctags_prog] [-L lang] [-d dst_dir] -p project_name\n";
+  print "         [<directories>]\n";
+  print "       $PROGNAME -k\n";
+  print "  If <directories> is empty then current directory will be used\n";
+  print "  -r recursive descending into <directories>\n";
+  print "  -l include local variables\n";
+  print "  -e list of comma-separated patterns corresponding to tags to be\n";
+  print "     excluded, <patterns> may contain prepending and appending dots\n";
+  print "     that mean any characters but spaces, for instance pattern\n";
+  print "     'G4.' matches all tags that start with 'G4'; also patterns may\n";
+  print "     start with '\@' that prepends a programming language identifier\n";
+  print "     which keywords must be excluded, list of supported languages\n";
+  print "     and corresponding keywords is printed when using option -k\n";
+  print "  -a add symbols from projects in <projects> to result file\n";
+  print "     <projects> is a comma-separated list\n";
+  print "  -c full path to 'ctags' executable, if omitted then system ctags\n";
+  print "     will be used\n";
+  print "  -L build tags only for specified language\n";
+  print "  -d path where tags file will be put (if not set then check if\n";
+  print "     environment variable TAGSDIR is set and use its value,\n";
+  print "     if TAGSDIR is not set then use current directory)\n";
+  print "  -k print list of languages that can be used in option -e and\n";
+  print "     effective keywords for them\n";
+}
+
+sub PrintLangmap
+{
+  for my $lang ( sort keys %LANG_KEYWORDS )
+  {
+    print "  $lang:\n";
+    for my $keyword ( sort @{ $LANG_KEYWORDS{ $lang } } )
+    {
+      print "    $keyword\n";
+    }
+  }
+}
+
+getopts( "a:p:d:e:lrc:L:k" );
+unless ( $opt_p )
+{
+  if ( $opt_k )
+  {
+    PrintLangmap();
+    exit 0;
+  }
+
+  PrintUsage();
+  exit 1;
+}
+
+PrintLangmap() if $opt_k;
+
+chomp ( my $ctagsProg = $opt_c || `which ctags` );
+
+die "ctags executable was not found" unless $ctagsProg;
+
+my $mktypesPy = "$ENV{ HOME }/.vim/plugin/TagHighlight/TagHighlight.py";
+die( "$mktypesPy not found" ) unless -f $mktypesPy;
+
+my $tmpDir = $ENV{ TMPDIR } || "/tmp";
+my $typesLink = "types_${opt_p}_". $ENV{ USER };
+my $tagsFile = "tags_${opt_p}_" . $ENV{ USER };
+my $lang = $opt_L || "c";
+
+my $mktypesPyArgs = "";
+$mktypesPyArgs .= " --include-language=$lang" if $opt_L;
+$mktypesPyArgs .= " --include-locals" if $opt_l;
+$mktypesPyArgs .= " --no-recurse" unless $opt_r;
+$mktypesPyArgs .= " --types-file-location=$tmpDir";
+$mktypesPyArgs .= " --types-file-prefix=$typesLink";
+$mktypesPyArgs .= " --ctags-file-dir=$tmpDir";
+$mktypesPyArgs .= " --ctags-file=$tagsFile";
+$mktypesPyArgs .= " --ctags-exe-full-path=$ctagsProg";
+#$mktypesPyArgs .= " --include-invalid-keywords-as-matches";
+
+# add some debug information if needed:
+#$mktypesPyArgs .= " --debug=Information" .
+                  #" --debug-file=$tmpDir/${PROGNAME}_$ENV{ USER }_LOG";
+
+$typesLink = $tmpDir . "/" . $typesLink . "_$lang.taghl";
+$tagsFile = $tmpDir . "/" . $tagsFile;
+
+my $dstDir = $opt_d || $ENV{ TAGSDIR } || ".";
+my $resFile = "$dstDir/${opt_p}_$lang.vim";
+
+my @excl = ();  # hold patterns of tags to be excluded
+
+foreach ( split ',', $opt_e )
+{
+  my $e = $_;
+  if ( /^@(.*)/o )
+  {
+    my $lang = $1;
+    if ( ! exists $LANG_KEYWORDS{ $lang } )
+    {
+      print "Language '$lang' is not supported, run\n\n";
+      print "$PROGNAME -k\n\n";
+      print "to see all supported languages\n";
+      exit 2;
+    }
+    push @excl, map { "\\b" . $_ . "\\b" } @{ $LANG_KEYWORDS{ $lang } };
+    next;
+  }
+  if ( /^\./o )
+  {
+    $e = "\\b\\w+" . s/^\.//o;
+  }
+  else
+  {
+    $e = "\\b" . $e;
+  }
+  if ( /\w+\.$/o )
+  {
+    $e =~ s/\.$//o;
+    $e .= "\\w+\\b";
+  }
+  else
+  {
+    $e .= "\\b";
+  }
+  push @excl, $e;
+}
+
+open( RESULT, "> $resFile" ) or die( $! );
+
+foreach ( split ',', $opt_a )
+{
+  my $file = "$dstDir/$_" . "_$lang.vim";
+  unless ( open SOURCE, "< $file" )
+  {
+    print "project '$_' does not exist, skipped\n";
+    next;
+  }
+  my @fileContent = <SOURCE>;
+  print RESULT @fileContent;
+  close SOURCE;
+}
+
+my @dirs = @ARGV;
+push @dirs, "." if @dirs == 0;
+
+foreach ( @dirs )
+{
+  print $_, ":\n";
+
+  system( "python $mktypesPy $mktypesPyArgs -d$_" );
+
+  if ( open( ORIG, "< $typesLink" ) )
+  {
+    print RESULT "\n\"$_\n";
+
+    while ( <ORIG> )
+    {
+      next if /$SILENTPTN/;
+      foreach my $e ( @excl )
+      {
+        s/$e//g;
+      }
+      next if /$EMPTYEXPRPTN/;
+      print RESULT $_;
+    }
+    close( ORIG ) or die $!;
+    if ( unlink( $typesLink ) != 1 )
+    {
+      warn( "cannot delete '$typesLink' file" );
+    }
+    else
+    {
+      print "Temporary file '$typesLink' removed\n";
+    }
+  }
+  if ( unlink( $tagsFile ) != 1 )
+  {
+    warn( "cannot delete '$tagsFile' file" );
+  }
+  else
+  {
+    print "Temporary file '$tagsFile' removed\n";
+  }
+}
+
+close( RESULT );
+

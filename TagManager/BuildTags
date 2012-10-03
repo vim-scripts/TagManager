@@ -1,0 +1,63 @@
+#!/bin/bash
+
+def_pref="Unnamed"
+cscope_in_suf="cscope_files"
+cscope_out_suf="cscope_out"
+ctags_out_suf="ctags"
+
+PrintUsage()
+{
+    echo "Usage: `basename $0` [-p prefix] [-d dst_dir] [-c ctags_prog] [dirs...]"
+    echo "  'prefix' is prefix for output file names (default is $def_pref)"
+    echo "  'dst_dir' is the place where files will be put"
+    echo "      (default is environment variable TAGSDIR or current dir"
+    echo "      if TAGSDIR is not set)"
+    echo "  'ctags_prog' is path to ctags executable (default is the system path)"
+    echo "  'dirs' is a space-separated list of directories where to find source files,"
+    echo "      if omitted then current directory is considered"
+}
+
+while [ $1 ]
+do
+    case $1 in
+        -h|-help|--help)    PrintUsage ; exit 0 ;;
+        -p)                 shift ; pref=$1 ;;
+        -d)                 shift ; dst_dir=$1 ;;
+        -c)                 shift ; ctags_prog=$1 ;;
+        *)                  if [ "${1:0:1}" = "/" ] ; then
+                                src_dirs=$src_dirs' '$1
+                            else
+                                src_dirs=$src_dirs' '`pwd`/$1
+                            fi ;;
+    esac
+    shift
+done
+
+[ -z "$pref" ] && pref=$def_pref
+[ -z "$dst_dir" ] && dst_dir=$TAGSDIR
+[ -z "$dst_dir" ] && dst_dir=`pwd`
+[ -z "$src_dirs" ] && src_dirs=`pwd`
+
+if [ ! -e "$dst_dir" ] ; then
+    echo "Error: $dst_dir does not exist"
+    exit 1
+fi
+
+[ -z "$ctags_prog" ] && ctags_prog=`which ctags`
+
+if [ ! -x "$ctags_prog" ] ; then
+    echo "Error: $ctags_prog does not exist"
+    exit 1
+fi
+
+cscope_in_file=$dst_dir/$pref.$cscope_in_suf
+cscope_out_file=$dst_dir/$pref.$cscope_out_suf
+ctags_out_file=$dst_dir/$pref.$ctags_out_suf
+
+echo "Building cscope tags ..."
+find $src_dirs -name '*.[hxc]' -o -name '*.cc' -o -name '*.icc' > $cscope_in_file
+cscope -u -b -q -i $cscope_in_file -f $cscope_out_file
+rm -f $cscope_in_file
+
+echo "Building ctags tags ..."
+$ctags_prog -R --c++-kinds=+p --fields=+iaS --extra=+q -f $ctags_out_file $src_dirs
