@@ -1,5 +1,7 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=4253
 
+Beware: this is a wrapping script over plugin TagHighlight. Hopefully its functionality will eventually appear in TagHighlight.
+
 This plugin is capable of managing both tag jumps and highlights databases simultaneously for different projects. It consists of two standalone applications BuildTags and MakeVimHlTags and this file. To manage tag highlights it uses excellent plugin TagHighlight (http://www.vim.org/scripts/script.php?script_id=2646) as backend. The plugin also needs exuberant ctags and (optionally) cscope packages.
 
 TagManager can manage both jumps and highlights tags incrementally, it means that projects may depend on other projects and user can setup his projects in such a way that he would need to update only small pieces of tags databases related to changes he would have made for a small project: all not changed dependencies would not be rebuilt and would be attached to the small projects as is. For example user can manage a small project my_proj which depends on large 3rd-party libraries libLarge1 and libLarge2 that he would definitely never change (we denote this sort of dependency as my_proj:libLarge1,libLarge2), then when he decide to update the tags of the project my_proj, tags from libLarge1 and libLarge2 will be attached to those from my_proj not having been rebuilt.
@@ -21,9 +23,9 @@ To use the plugin efficiently add following lines in your .vimrc:
                                             \ ['Extension', 'FileType']
     let g:TagHighlightSettings['FileTypeLanguageOverrides'] =
                                             \ {'svn': 'c', 'tagbar': 'c'}
-    runtime plugin/TagManager.vim
+    let g:loaded_TagHighlight = 2
 
-Setting variable g:TagHighlightSettings['FileTypeLanguageOverrides'] will let you enjoy tag highlights in tagbar window and when committed svn changes. Sourcing the plugin code in .vimrc is needed as far as TagManager depends on TagHighlight plugin and autocommands from TagManager must go before corresponding autocommands from TagHighlight.
+Setting variable g:TagHighlightSettings['FileTypeLanguageOverrides'] will let you enjoy tag highlights in tagbar window and when committed svn changes. Line 'let g:loaded_TagHighlight = 2' will prevent loading of TagHighlight before TagManager thus letting the latter to manage initialization of the former itself. This is important because TagManager depends on TagHighlight plugin and autocommands from TagManager must go before corresponding autocommands from TagHighlight. Value 2 will make TagManager aware that variable g:loaded_TagHighlight was only initialized in .vimrc and TagHighlight is really not loaded yet.
 
 You also may want to put scripts BuildTags and MakeVimHlTags in some directory listed in your $PATH environment variable (by default this plugin expects to find them in $HOME/bin/), and create new environment variable $TAGSDIR where all plugin data will be saved. Now you can additionally use BuildTags and MakeVimHlTags as standalone scripts and create tags for vim directly from command line. To see available command-line options run the scripts with option --help.
 

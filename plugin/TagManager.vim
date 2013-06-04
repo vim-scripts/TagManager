@@ -1,6 +1,6 @@
 " File: TagManager.vim
 " Author: Alexey Radkov
-" Version: 0.1
+" Version: 0.2
 " Description: Project aware incremental tags manager
 " Usage:
 "   This plugin is capable of managing both tag jumps and highlights databases
@@ -40,13 +40,17 @@
 "                                               \ ['Extension', 'FileType']
 "       let g:TagHighlightSettings['FileTypeLanguageOverrides'] =
 "                                               \ {'svn': 'c', 'tagbar': 'c'}
-"       runtime plugin/TagManager.vim
+"       let g:loaded_TagHighlight = 2
 "
 "   Setting variable g:TagHighlightSettings['FileTypeLanguageOverrides'] will
 "   let you enjoy tag highlights in tagbar window and when committed svn
-"   changes. Sourcing the plugin code in .vimrc is needed as far as TagManager
+"   changes. Line 'let g:loaded_TagHighlight = 2' will prevent loading of
+"   TagHighlight before TagManager thus letting the latter to manage
+"   initialization of the former itself. This is important because TagManager
 "   depends on TagHighlight plugin and autocommands from TagManager must go
-"   before corresponding autocommands from TagHighlight.
+"   before corresponding autocommands from TagHighlight. Value 2 will make
+"   TagManager aware that variable g:loaded_TagHighlight was only initialized
+"   in .vimrc and TagHighlight is really not loaded yet.
 "
 "   You also may want to put scripts BuildTags and MakeVimHlTags in some
 "   directory listed in your $PATH environment variable (by default this
@@ -91,9 +95,11 @@ let g:loaded_TagMgr = 1
 if !exists('g:TagMgrJumpsBuilder')
     let g:TagMgrJumpsBuilder = $HOME."/bin/BuildTags"
 endif
+
 if !exists('g:TagMgrHighlightsBuilder')
     let g:TagMgrHighlightsBuilder = $HOME."/bin/MakeVimHlTags"
 endif
+
 if !exists('g:TagMgrTagsdir')
     if empty($TAGSDIR)
         echohl WarningMsg
@@ -104,9 +110,16 @@ if !exists('g:TagMgrTagsdir')
     endif
     let g:TagMgrTagsdir = $TAGSDIR
 endif
+
 if !exists('g:TagMgrFtMap')
-    let g:TagMgrFtMap = {'cpp': 'c', 'svn': '', 'tagbar': ''}
+    let g:TagMgrFtMap = {'cpp': 'c'}
 endif
+
+if !exists('g:TagMgrFtMapExtra')
+    let g:TagMgrFtMapExtra = {'svn': '', 'tagbar': ''}
+endif
+
+call extend(g:TagMgrFtMap, g:TagMgrFtMapExtra)
 
 if !exists('g:TagMgrTags')
     let g:TagMgrTags = []
@@ -127,6 +140,8 @@ if filereadable(g:TagMgrDataFile)
                     \ 'expand(v:val)'))
     endfor
 endif
+
+let s:tagmgr_usetaghl = 0
 
 
 fun! <SID>GetLangMap(def_lang, cur_ft)
@@ -158,12 +173,15 @@ fun! <SID>SetJumps(tags)
 endfun
 
 fun! <SID>SetHighlights()
+    if s:tagmgr_usetaghl == 0
+        return
+    endif
     if !exists('b:TagMgrCurrentTags')
         if !exists('g:TagMgrCurrentTags')
             return
         endif
         let ft = expand('<amatch>')
-        if ft != 'svn' && ft != 'tagbar'
+        if !exists('g:TagMgrFtMapExtra[ft]')
             return
         endif
         let b:TagMgrCurrentTags = g:TagMgrCurrentTags
@@ -302,7 +320,18 @@ fun! <SID>UpdateProjectTags()
     call <SID>UpdateProjectHighlights()
 endfun
 
+
 command UpdateProjectJumps call <SID>UpdateProjectJumps()
 command UpdateProjectHighlights call <SID>UpdateProjectHighlights()
 command UpdateProjectTags call <SID>UpdateProjectTags()
+
+
+" load plugin TagHighlight after all our autocommands were defined
+if !exists('g:loaded_TagHighlight') || g:loaded_TagHighlight == 2
+    unlet! g:loaded_TagHighlight
+    runtime plugin/TagHighlight.vim
+    if exists('g:loaded_TagHighlight')
+        let s:tagmgr_usetaghl = 1
+    endif
+endif
 
